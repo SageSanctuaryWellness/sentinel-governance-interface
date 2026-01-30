@@ -1,0 +1,514 @@
+import React, { useState, useEffect } from 'react';
+import { Play, Square, AlertCircle, ShieldCheck, Zap, ChevronRight, Volume2, FileText, LayoutList, Share2, Download } from 'lucide-react';
+
+const Logo = () => (
+  <div className="flex items-center gap-3">
+    <div className="text-right hidden sm:block">
+      <div className="text-[10px] font-bold tracking-[0.2em] text-stone-800 leading-tight uppercase">Sage Sanctuary</div>
+      <div className="text-[10px] tracking-[0.3em] text-stone-500 leading-tight uppercase font-light">Workforce</div>
+    </div>
+    <svg width="42" height="42" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-stone-800">
+      <circle cx="50" cy="50" r="48" fill="currentColor" fillOpacity="0.03" />
+      <path 
+        d="M50 10C27.9 10 10 27.9 10 50C10 72.1 27.9 90 50 90C72.1 90 90 72.1 90 50" 
+        stroke="currentColor" 
+        strokeWidth="0.5" 
+        strokeDasharray="4 4"
+      />
+      <path 
+        d="M70 35C70 35 65 25 50 25C35 25 25 35 25 50C25 65 35 75 50 75C65 75 75 65 75 50C75 42 70 35 70 35ZM50 65C41.7 65 35 58.3 35 50C35 41.7 41.7 35 50 35C58.3 35 65 41.7 65 50" 
+        fill="currentColor"
+      />
+      <path 
+        d="M50 35C58.3 35 65 41.7 65 50C65 58.3 58.3 65 50 65C41.7 65 35 58.3 35 50" 
+        fill="white"
+      />
+      <path 
+        d="M50 35C45 35 40 38 40 43C40 48 50 48 50 53C50 58 45 61 40 61M50 35C55 35 60 38 60 43C60 48 50 48 50 53C50 58 55 61 60 61" 
+        stroke="currentColor" 
+        strokeWidth="4" 
+        strokeLinecap="round"
+      />
+    </svg>
+  </div>
+);
+
+const App = () => {
+  const [input, setInput] = useState('');
+  const [analysis, setAnalysis] = useState('');
+  const [actionPlan, setActionPlan] = useState('');
+  const [memo, setMemo] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [memoLoading, setMemoLoading] = useState(false);
+  const [error, setError] = useState('');
+  
+  const [sector, setSector] = useState('Health');
+  const [foresight, setForesight] = useState('');
+  const [foresightLoading, setForesightLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Analytics tracking
+  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+
+  // API key - will be injected via environment variable in production
+  // For artifact preview, using placeholder
+  const apiKey = "AIzaSyDVgd7NL1KdFo_OLm5rNuEcxf_s5T-3mjM";
+
+  // Track page load
+  useEffect(() => {
+    trackEvent('page_load', { timestamp: new Date().toISOString() });
+  }, []);
+
+  // Simple analytics tracker
+  const trackEvent = (eventName, data = {}) => {
+    const eventData = {
+      event: eventName,
+      sessionId,
+      timestamp: new Date().toISOString(),
+      ...data
+    };
+    
+    // Log to console (will be visible in Vercel logs)
+    console.log('📊 Analytics:', eventData);
+    
+    // Store in localStorage for basic tracking
+    try {
+      const events = JSON.parse(localStorage.getItem('sentinel_analytics') || '[]');
+      events.push(eventData);
+      // Keep only last 50 events
+      if (events.length > 50) events.shift();
+      localStorage.setItem('sentinel_analytics', JSON.stringify(events));
+    } catch (e) {
+      console.warn('Analytics storage failed:', e);
+    }
+  };
+
+  const fetchWithRetry = async (url, payload, retries = 5, delay = 1000) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(`API failed with status ${response.status}`);
+        return await response.json();
+      } catch (err) {
+        if (i === retries - 1) throw err;
+        await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+      }
+    }
+  };
+
+  const analyzeSignal = async () => {
+    if (!input.trim()) return;
+    
+    trackEvent('signal_analysis_started', { 
+      inputLength: input.length,
+      sector: sector 
+    });
+
+    setLoading(true);
+    setError('');
+    setAnalysis('');
+    setActionPlan('');
+    setMemo('');
+
+    const systemPrompt = `You are a specialist in Translational Governance. Format with exact headers: 1. THE BENCH, 2. THE BEDSIDE, 3. THE COMMUNITY. Tone: Senior, board-ready, academic but practical.`;
+
+    try {
+      const data = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        {
+          contents: [{ parts: [{ text: `Translate this operational signal for an institutional leader: ${input}` }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] }
+        }
+      );
+      const result = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No synthesis available.';
+      setAnalysis(result);
+      
+      trackEvent('signal_analysis_completed', { 
+        success: true,
+        responseLength: result.length 
+      });
+    } catch (err) {
+      setError("Institutional connectivity error during translation.");
+      trackEvent('signal_analysis_failed', { error: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateActionPlan = async () => {
+    if (!analysis) return;
+    
+    trackEvent('action_plan_requested');
+    
+    setActionLoading(true);
+    const systemPrompt = `You are a Chief Governance Officer. Based on the provided Translational Analysis, generate a high-impact 'Strategic Action Plan'. 
+    Include:
+    - 3 Immediate Tactical Steps (Next 30 days)
+    - 1 Long-term Strategic Shift (6-12 months)
+    Tone should be decisive and risk-aware. Use a professional list format.`;
+
+    try {
+      const data = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        {
+          contents: [{ parts: [{ text: `Original Analysis: ${analysis}` }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] }
+        }
+      );
+      const result = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Action plan unavailable.';
+      setActionPlan(result);
+      trackEvent('action_plan_generated', { success: true });
+    } catch (err) {
+      setError("Failed to generate strategic action plan.");
+      trackEvent('action_plan_failed', { error: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const generateMemo = async () => {
+    if (!analysis) return;
+    
+    trackEvent('memo_requested');
+    
+    setMemoLoading(true);
+    const systemPrompt = `You are a Senior Strategic Advisor. Convert the following Signal Analysis into a formal Internal Executive Memorandum. 
+    The memo should include:
+    - TO: Executive Leadership Team / Board of Directors
+    - FROM: Office of Workforce Risk Governance
+    - SUBJECT: Advisory on AI-Mediated Operational Load
+    - SUMMARY: High-level overview
+    - RECOMMENDATIONS: Clear action items.
+    Maintain a calm, institutional, and highly professional tone.`;
+
+    try {
+      const data = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        {
+          contents: [{ parts: [{ text: `Signal Analysis Data: ${analysis}` }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] }
+        }
+      );
+      const result = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Memo generation failed.';
+      setMemo(result);
+      trackEvent('memo_generated', { success: true });
+    } catch (err) {
+      setError("Error generating executive memorandum.");
+      trackEvent('memo_failed', { error: err.message });
+    } finally {
+      setMemoLoading(false);
+    }
+  };
+
+  const generateForesight = async () => {
+    trackEvent('foresight_requested', { sector });
+    
+    setForesightLoading(true);
+    try {
+      const data = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        { 
+          contents: [{ parts: [{ text: `Generate 3 critical board oversight questions for ${sector} AI systems.` }] }],
+          systemInstruction: { parts: [{ text: "Tone: Senior advisor specializing in institutional risk." }] }
+        }
+      );
+      const result = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      setForesight(result);
+      trackEvent('foresight_generated', { sector, success: true });
+    } catch (err) {
+      setError("Failed to generate foresight questions.");
+      trackEvent('foresight_failed', { sector, error: err.message });
+    } finally {
+      setForesightLoading(false);
+    }
+  };
+
+  const playAudioBriefing = async () => {
+    if (!analysis) return;
+    
+    trackEvent('audio_briefing_started');
+    
+    setIsPlaying(true);
+    try {
+      const data = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
+        {
+          contents: [{ parts: [{ text: `Institutional Advisory Briefing: ${analysis}` }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } }
+          }
+        }
+      );
+      const base64 = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      const wavHeader = new ArrayBuffer(44);
+      const view = new DataView(wavHeader);
+      view.setUint32(0, 0x52494646, false); view.setUint32(4, 36 + bytes.length, true);
+      view.setUint32(8, 0x57415645, false); view.setUint32(12, 0x666d7420, false);
+      view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+      view.setUint32(24, 24000, true); view.setUint32(28, 48000, true);
+      view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+      view.setUint32(36, 0x64617461, false); view.setUint32(40, bytes.length, true);
+      const blob = new Blob([wavHeader, bytes], { type: 'audio/wav' });
+      const audio = new Audio(URL.createObjectURL(blob));
+      audio.onended = () => {
+        setIsPlaying(false);
+        trackEvent('audio_briefing_completed');
+      };
+      audio.play();
+    } catch (err) {
+      setIsPlaying(false);
+      trackEvent('audio_briefing_failed', { error: err.message });
+    }
+  };
+
+  const downloadReport = () => {
+    trackEvent('report_downloaded');
+    
+    const report = `
+TRANSLATIONAL GOVERNANCE ADVISORY REPORT
+Generated: ${new Date().toLocaleString()}
+Session: ${sessionId}
+
+═══════════════════════════════════════════════════════════════
+
+ORIGINAL SIGNAL:
+${input}
+
+═══════════════════════════════════════════════════════════════
+
+TRANSLATIONAL ANALYSIS:
+${analysis}
+
+${actionPlan ? `
+═══════════════════════════════════════════════════════════════
+
+STRATEGIC ACTION PLAN:
+${actionPlan}
+` : ''}
+
+${memo ? `
+═══════════════════════════════════════════════════════════════
+
+EXECUTIVE MEMORANDUM:
+${memo}
+` : ''}
+
+═══════════════════════════════════════════════════════════════
+
+Report prepared by: Nadjean Sagesse, MS, DrPH (c)
+Sage Sanctuary Wellness, Inc.
+© 2026 - Confidential Institutional Advisory
+    `.trim();
+
+    const blob = new Blob([report], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Governance_Report_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBookingClick = () => {
+    trackEvent('booking_clicked', { 
+      hasAnalysis: !!analysis,
+      hasActionPlan: !!actionPlan,
+      hasMemo: !!memo
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-stone-50 py-16 px-6 flex flex-col items-center text-stone-900 font-sans">
+      <main className="max-w-3xl w-full bg-white shadow-xl p-10 md:p-16 border border-stone-200 rounded-sm overflow-hidden">
+        <header className="mb-12 border-b pb-8 flex justify-between items-start">
+          <div className="flex-1">
+            <p className="uppercase tracking-[0.25em] text-[10px] font-bold text-stone-500">Sage Sanctuary Wellness</p>
+            <h1 className="mt-4 text-xl md:text-2xl tracking-[0.2em] uppercase font-light text-stone-800 leading-tight">Nadjean Sagesse, MS, DrPH (c)</h1>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400 mt-2 font-medium">Translational AI Governance · Institutional Capacity</p>
+          </div>
+          <Logo />
+        </header>
+
+        <section className="mb-12">
+          <h2 className="text-4xl md:text-5xl font-serif leading-tight text-stone-900">Translational Governance</h2>
+          <p className="italic font-serif text-2xl md:text-3xl mt-4 text-stone-600">Making AI Systems Safe for Institutional Touch</p>
+          <div className="h-1 w-20 bg-stone-900 mt-8"></div>
+        </section>
+
+        {/* ANALYTICAL INPUT */}
+        <section className="mb-14 border border-stone-900 bg-stone-50 p-8 rounded-sm shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-2 opacity-10">
+            <Zap size={64} />
+          </div>
+          <h3 className="uppercase tracking-widest text-[11px] font-bold text-stone-900 flex items-center gap-2 mb-6">
+            <Zap size={14} className="text-amber-600" /> Translational Signal Analysis
+          </h3>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            className="w-full p-5 border border-stone-300 bg-white text-lg leading-relaxed focus:ring-1 focus:ring-stone-900 outline-none font-serif shadow-inner min-h-[140px]"
+            placeholder="Describe an operational shift, technical friction point, or emerging AI-related behavior pattern..."
+          />
+          <div className="mt-6 flex flex-wrap gap-4">
+            <button 
+              onClick={analyzeSignal} 
+              disabled={loading || !input.trim()} 
+              className="px-8 py-3 bg-stone-900 text-white uppercase tracking-[0.2em] text-[10px] font-bold hover:bg-stone-800 disabled:bg-stone-200 transition-all flex items-center gap-2"
+            >
+              {loading ? "Synthesizing..." : "Run Translation ✨"}
+            </button>
+            {analysis && (
+              <>
+                <button 
+                  onClick={playAudioBriefing} 
+                  disabled={isPlaying} 
+                  className="px-6 py-3 border border-stone-900 text-stone-900 uppercase tracking-[0.2em] text-[10px] font-bold hover:bg-stone-50 transition-all flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isPlaying ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />} Briefing
+                </button>
+                <button 
+                  onClick={downloadReport}
+                  className="px-6 py-3 border border-stone-900 text-stone-900 uppercase tracking-[0.2em] text-[10px] font-bold hover:bg-stone-50 transition-all flex items-center gap-2"
+                >
+                  <Download size={14} /> Export
+                </button>
+              </>
+            )}
+          </div>
+        </section>
+
+        {/* RESULTS & SECONDARY LLM ACTIONS */}
+        {analysis && (
+          <div className="space-y-8 mb-14 animate-in fade-in slide-in-from-top-4 duration-700">
+            <div className="bg-white border border-stone-200 p-8 shadow-sm">
+              <p className="uppercase tracking-[0.25em] text-[9px] font-bold text-stone-400 mb-6 border-b border-stone-100 pb-2">Institutional Advisory Readout</p>
+              <div className="text-stone-800 text-lg md:text-xl leading-relaxed italic font-serif whitespace-pre-wrap">{analysis}</div>
+              
+              <div className="mt-8 pt-6 border-t border-stone-100 flex flex-wrap gap-4">
+                <button 
+                  onClick={generateActionPlan} 
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-stone-100 text-stone-900 border border-stone-300 rounded-sm text-[10px] uppercase font-bold tracking-widest hover:bg-stone-200 flex items-center gap-2 disabled:opacity-50"
+                >
+                  <LayoutList size={14} /> {actionLoading ? "Mapping..." : "Strategic Action Plan"}
+                </button>
+                <button 
+                  onClick={generateMemo} 
+                  disabled={memoLoading}
+                  className="px-4 py-2 bg-stone-100 text-stone-900 border border-stone-300 rounded-sm text-[10px] uppercase font-bold tracking-widest hover:bg-stone-200 flex items-center gap-2 disabled:opacity-50"
+                >
+                  <FileText size={14} /> {memoLoading ? "Drafting..." : "Executive Memo"}
+                </button>
+              </div>
+            </div>
+
+            {/* ACTION PLAN OUTPUT */}
+            {actionPlan && (
+              <div className="bg-stone-900 text-stone-50 p-8 rounded-sm shadow-xl animate-in fade-in zoom-in-95">
+                <h4 className="uppercase tracking-[0.2em] text-[10px] font-bold text-stone-400 mb-6 flex items-center gap-2">
+                  <LayoutList size={16} className="text-stone-100" /> Strategic Action Plan
+                </h4>
+                <div className="text-base leading-relaxed font-sans whitespace-pre-wrap">{actionPlan}</div>
+              </div>
+            )}
+
+            {/* MEMO OUTPUT */}
+            {memo && (
+              <div className="bg-stone-50 border-2 border-stone-900 p-8 rounded-sm shadow-md animate-in slide-in-from-right-4 duration-500">
+                <div className="flex justify-between items-start mb-6 border-b border-stone-200 pb-4">
+                  <h4 className="uppercase tracking-[0.2em] text-[10px] font-bold text-stone-900 flex items-center gap-2">
+                    <FileText size={16} /> Executive Memorandum
+                  </h4>
+                </div>
+                <div className="text-sm leading-relaxed font-serif text-stone-800 whitespace-pre-wrap">{memo}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* FORESIGHT SECTION */}
+        <section className="mb-14 p-8 border border-stone-200 border-dashed bg-white">
+          <h3 className="uppercase tracking-[0.2em] text-[11px] font-bold text-stone-500 mb-6 flex items-center gap-2">
+            <ShieldCheck size={18} /> Governance Foresight Generator
+          </h3>
+          <div className="flex flex-col md:flex-row gap-4 mb-6">
+            <select value={sector} onChange={(e) => setSector(e.target.value)} className="flex-1 p-3 border border-stone-300 rounded-sm text-xs font-bold uppercase bg-stone-50 outline-none focus:ring-1 focus:ring-stone-900 cursor-pointer">
+              <option value="Health">Healthcare Systems</option>
+              <option value="Education">Education Systems</option>
+              <option value="Federal">Federal / Public Service</option>
+            </select>
+            <button onClick={generateForesight} disabled={foresightLoading} className="px-6 py-3 border border-stone-900 text-stone-900 text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-stone-900 hover:text-white transition-all disabled:opacity-50">
+              {foresightLoading ? "Generating..." : "Generate Foresight"}
+            </button>
+          </div>
+          {foresight && <div className="p-6 bg-stone-50 border border-stone-100 text-lg font-serif italic text-stone-700 whitespace-pre-wrap animate-in fade-in">{foresight}</div>}
+        </section>
+
+        {/* CORE METHODOLOGY */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-14 border-t pt-10">
+          <div>
+            <p className="uppercase text-[11px] tracking-[0.25em] text-stone-400 font-bold mb-3">Bench</p>
+            <p className="text-xs text-stone-500 leading-relaxed">Operational reality at the technical point of AI deployment and workforce interaction.</p>
+          </div>
+          <div>
+            <p className="uppercase text-[11px] tracking-[0.25em] font-bold text-stone-900 mb-3 underline underline-offset-4">Bedside</p>
+            <p className="text-xs text-stone-900 font-medium leading-relaxed">Translating raw signals into foresight and high-altitude decision support.</p>
+          </div>
+          <div>
+            <p className="uppercase text-[11px] tracking-[0.25em] text-stone-400 font-bold mb-3">Community</p>
+            <p className="text-xs text-stone-500 leading-relaxed">Maintaining systemic trust, ethical alignment, and long-term public equity.</p>
+          </div>
+        </section>
+
+        {/* FOOTER */}
+        <footer className="border-t pt-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-10 text-stone-800">
+          <div>
+            <p className="font-bold text-sm tracking-widest uppercase">Nadjean Sagesse</p>
+            <p className="text-xs text-stone-500 font-medium mt-1">nadjean@sagesanctuarywellness.com</p>
+          </div>
+          <a 
+            href="https://calendar.app.google/Pi5zL7bpu3akWY5o9" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            onClick={handleBookingClick}
+            className="group px-10 py-4 bg-stone-900 text-white uppercase tracking-[0.3em] text-[10px] font-bold hover:bg-stone-800 transition-all flex items-center gap-3 shadow-lg hover:shadow-2xl"
+          >
+            Book Advisory Call <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+          </a>
+        </footer>
+
+        <div className="mt-20 text-center border-t border-stone-50 pt-8">
+          <p className="text-[10px] uppercase tracking-[0.4em] text-stone-300 font-medium">© 2026 Sage Sanctuary Wellness · Confidential Institutional Advisory</p>
+        </div>
+
+        {/* NOTIFICATIONS */}
+        {error && (
+          <div className="fixed bottom-6 right-6 bg-stone-900 text-white p-5 rounded-sm shadow-2xl flex items-center gap-4 text-xs border border-stone-700 animate-in slide-in-from-bottom-6 duration-300 max-w-md">
+            <AlertCircle size={18} className="text-amber-500 flex-shrink-0" />
+            <div className="space-y-1">
+              <p className="font-bold uppercase tracking-widest text-[9px]">Governance Signal Alert</p>
+              <p className="text-stone-400">{error}</p>
+            </div>
+            <button 
+              onClick={() => setError('')}
+              className="ml-2 text-stone-400 hover:text-white transition-colors"
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
+
+export default App;
